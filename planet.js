@@ -8,10 +8,38 @@ var request = require('request');
 var mysql = require('mysql');
 var maki = require('maki-template');
 var app = express();
+var langs = {};
+var langList = [];
 
 global.async = require('async');
 global.validator = require('validator');
 global.db = mysql.createPool(require('../config.json').mariadb);
+
+request('https://spreadsheets.google.com/feeds/cells/1qT9wXeR6W7BzE6e7MjGqMH5itjIU_DldKvB4uzJt7G0/1/public/basic?alt=json', function(err, data, body) {
+	if(!err && data.statusCode == 200) {
+		var langTag = {};
+		body = JSON.parse(body).feed.entry;
+		for(let i = 0; i < body.length; i++) {
+			if(body[i].title.$t.substr(1) == '1') {
+				langTag[body[i].title.$t.substr(0, 1)] = body[i].content.$t;
+				langs[body[i].content.$t] = {};
+				langList.push(body[i].content.$t);
+			}
+			else {
+				if(body[i].title.$t.substr(0, 1) == 'A') {
+					langTag[body[i].title.$t.substr(1)] = body[i].content.$t;
+				}
+				else {
+					langs[langTag[body[i].title.$t.substr(0, 1)]][langTag[body[i].title.$t.substr(1)]] = body[i].content.$t;
+				}
+			}
+		}
+
+	}
+	else {
+		console.error('Failed to update language file');
+	}
+});
 
 maki.init(app);
 app.set('trust proxy', true);
@@ -22,11 +50,14 @@ app.use(bodyParser.json());
 app.use(require("cookie-parser")());
 app.use((req, res, next) => {
 	res.result = (skin, data) => {
+		function i18n(id) {
+			return langs[langList.indexOf(req.cookies.language) != -1 ? req.cookies.language : "noLang"][id] || langs[(req.acceptsLanguages(langList) || "noLang")][id] || langs["ko-KR"][id] || '#' + id;
+		}
 		if(req.get('X-App-ID')) {
 			res.json(data);
 		}
 		else {
-			res.render(skin, {data: data});
+			res.render(skin, {data: data, i18n: i18n});
 		}
 	};
 	if((req.get('Content-Type') || '').substr(0,19) == 'multipart/form-data') {
